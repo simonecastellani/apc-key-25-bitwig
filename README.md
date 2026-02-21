@@ -15,14 +15,36 @@ piece of gear into a powerhouse with Bitwig and this script!
 * Shift + clip button deletes a clip when in rec/arm mode.
 * Shift + "Stop All Clips" returns to arrangement.
 * Shift + Play/Pause does tap tempo.
-* Shift + Record cycles through remote pages.
+* Shift + Record toggles Step Sequencer mode (see below).
 * In mute mode, the light indicates that the track _is_ muted.
+
+### Step Sequencer Mode
+
+Press **Shift + Record** to toggle between Clip Launcher and Step Sequencer mode.
+
+In Step Sequencer mode the 8×5 pad grid becomes a step editor for the currently selected clip:
+
+| Control | Function |
+|---------|----------|
+| Grid pads | Toggle a step on/off (amber = active, off = inactive) |
+| Playback position | Current step blinks green (active) or amber (empty) |
+| Shift + Left / Right | Scroll to the previous / next page of 8 steps |
+| Shift + Up / Down | Scroll the note range up / down by one semitone |
+| Shift + Record | Exit Step Sequencer and return to Clip Launcher mode |
+
+Each row of the grid represents a different note pitch (bottom row = lowest, top row = highest).
+Each column represents one step within the 8-step page. Scrolling left/right lets you edit clips
+longer than 8 steps; scrolling up/down shifts which pitches are displayed.
+
+The 8 knobs continue to control track Volume / Pan / Send / Device parameters while in Step
+Sequencer mode.
 
 ### Nice to Haves:
 
 * Ability to remap Shift + [Sustain, Play/Pause, Rec] since there are more features we could add than just the three and different people have different workflows
 * Marquee/image mode (like Bitwig logo or APC on startup)
 * Ability to use clip launchers as a keyboard (with selectable modes)
+* Per-step velocity control via knobs in Step Sequencer mode
 
 Installation
 ------------
