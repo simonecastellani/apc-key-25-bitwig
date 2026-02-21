@@ -343,6 +343,18 @@ var sceneLaunchers = [];
 var numSends = 10;
 var sendIndex = 0;
 
+// Step sequencer state
+var stepSequencerMode = false;
+var cursorClip;
+// stepData[step][bitwigY]: 0=empty, 1=note, 2=continuation
+var stepData = [];
+// Current transport step position in the sequencer (-1 = not playing)
+var currentPlayStep = -1;
+// Default note length for sequencer steps (0.25 = one quarter-beat, i.e. a 1/16 note in 4/4 time)
+var stepNoteLength = 0.25;
+// Default velocity for newly inserted steps (1.0 = maximum, range 0.0–1.0)
+var stepDefaultVelocity = 1.0;
+
 // Some global Bitwig objects
 var mainTrackBank;
 
@@ -760,6 +772,79 @@ var velocitySensitive = false;
 var velocityCurveFixed = [];
 var velocityCurveDynamic = [];
 
+// Lights one step button according to its current step data and playback state
+function displayStepButton(step, bitwigY)
+{
+    var noteValue = bitwigY * gridWidth + step;
+    var isCurrentStep = (step === currentPlayStep);
+    var state = stepData[step][bitwigY];
+    var color;
+    if (isCurrentStep)
+    {
+        color = state > 0 ? gridButtonMode.blinkingGreen : gridButtonMode.blinkingAmber;
+    }
+    else
+    {
+        color = state > 0 ? gridButtonMode.amber : gridButtonMode.off;
+    }
+    sendMidi(144, noteValue, color);
+}
+
+// Redraws the entire step sequencer grid and blanks track/scene side buttons
+function displayStepGrid()
+{
+    for (var sx = 0; sx < gridWidth; sx++)
+    {
+        for (var sy = 0; sy < gridHeight; sy++)
+        {
+            displayStepButton(sx, sy);
+        }
+    }
+    for (var ti = 0; ti < gridWidth; ti++)
+    {
+        sendMidi(144, controlNote.up + ti, trackButtonMode.off);
+    }
+    for (var si = 0; si < gridHeight; si++)
+    {
+        sendMidi(144, controlNote.clipStop + si, sceneButtonMode.off);
+    }
+}
+
+// Clears all 40 step grid pad LEDs
+function clearStepGrid()
+{
+    for (var sx = 0; sx < gridWidth; sx++)
+    {
+        for (var sy = 0; sy < gridHeight; sy++)
+        {
+            sendMidi(144, sy * gridWidth + sx, gridButtonMode.off);
+        }
+    }
+}
+
+function enterStepSequencerMode()
+{
+    stepSequencerMode = true;
+    if (!shiftOn)
+    {
+        clearGrid(false);
+        clearSceneLaunchers();
+        displayStepGrid();
+    }
+    host.showPopupNotification("Step Sequencer Mode");
+}
+
+function exitStepSequencerMode()
+{
+    stepSequencerMode = false;
+    if (!shiftOn)
+    {
+        displaySceneLaunchers();
+        displayGrid(false);
+    }
+    host.showPopupNotification("Clip Launcher Mode");
+}
+
 function init()
 {
     host.getMidiInPort(0).setMidiCallback(onMidi);
@@ -796,12 +881,63 @@ function init()
     initializeGrid();
     displaySceneLaunchers();
     displayGrid(false);
+    
+    // Initialize step sequencer data and cursor clip
+    for (var ssi = 0; ssi < gridWidth; ssi++)
+    {
+        stepData[ssi] = [];
+        for (var sni = 0; sni < gridHeight; sni++)
+        {
+            stepData[ssi][sni] = 0;
+        }
+    }
+    
+    cursorClip = host.createLauncherCursorClip(gridWidth, gridHeight);
+    
+    cursorClip.addStepDataObserver(function(x, y, state)
+    {
+        if (x >= 0 && x < gridWidth && y >= 0 && y < gridHeight)
+        {
+            stepData[x][y] = state;
+            if (stepSequencerMode)
+            {
+                displayStepButton(x, y);
+            }
+        }
+    });
+    
+    cursorClip.addPlayingStepObserver(function(step)
+    {
+        var prevStep = currentPlayStep;
+        currentPlayStep = step;
+        if (stepSequencerMode)
+        {
+            if (prevStep >= 0 && prevStep < gridWidth)
+            {
+                for (var y = 0; y < gridHeight; y++)
+                {
+                    displayStepButton(prevStep, y);
+                }
+            }
+            if (step >= 0 && step < gridWidth)
+            {
+                for (var y = 0; y < gridHeight; y++)
+                {
+                    displayStepButton(step, y);
+                }
+            }
+        }
+    });
 }
 
 // Light up the mode lights as appropriate for shift mode
 function shiftPressed()
 {
     shiftOn = true;
+    if (stepSequencerMode)
+    {
+        clearStepGrid();
+    }
     clearGrid(true);
     clearSceneLaunchers();
     displayArrows();
@@ -816,8 +952,15 @@ function shiftReleased()
     shiftOn = false;
     sendMidi(144, knobMode, trackButtonMode.off);
     sendMidi(144, trackMode, sceneButtonMode.off);
-    displaySceneLaunchers();
-    displayGrid(true);
+    if (stepSequencerMode)
+    {
+        displayStepGrid();
+    }
+    else
+    {
+        displaySceneLaunchers();
+        displayGrid(true);
+    }
 }
 
 // Change the track button mode and, if in shift mode, switch which button is lighted
@@ -882,19 +1025,30 @@ function onMidi(status, data1, data2)
                 transport.tapTempo();
                 break;
                 case controlNote.record:
-                cursorRemoteControls.selectNextPage(true);
+                if (stepSequencerMode)
+                {
+                    exitStepSequencerMode();
+                }
+                else
+                {
+                    enterStepSequencerMode();
+                }
                 break;
                 case controlNote.up:
-                mainTrackBank.scrollScenesUp();
+                if (stepSequencerMode) cursorClip.scrollKeysStepForward();
+                else mainTrackBank.scrollScenesUp();
                 break;
                 case controlNote.down:
-                mainTrackBank.scrollScenesDown();
+                if (stepSequencerMode) cursorClip.scrollKeysStepBackward();
+                else mainTrackBank.scrollScenesDown();
                 break;
                 case controlNote.left:
-                mainTrackBank.scrollTracksUp();
+                if (stepSequencerMode) cursorClip.scrollStepsPageBackward();
+                else mainTrackBank.scrollTracksUp();
                 break;
                 case controlNote.right:
-                mainTrackBank.scrollTracksDown();
+                if (stepSequencerMode) cursorClip.scrollStepsPageForward();
+                else mainTrackBank.scrollTracksDown();
                 break;
                 // Functionality not in the manual that this script adds:
                 // shift+stopAllClips does return to arrangement
@@ -941,9 +1095,21 @@ function onMidi(status, data1, data2)
                 // From the grid
                 if (data1 >= 0 && data1 < 40)
                 {
-                    trackIndex = data1 % gridWidth;
-                    sceneIndex = gridHeight - 1 - Math.floor(data1 / gridWidth);
-                    mainTrackBank.getTrack(trackIndex).getClipLauncherSlots().launch(sceneIndex);
+                    if (stepSequencerMode)
+                    {
+                        var step = data1 % gridWidth;
+                        var bitwigY = Math.floor(data1 / gridWidth);
+                        if (stepData[step][bitwigY] > 0)
+                            cursorClip.clearStep(step, bitwigY);
+                        else
+                            cursorClip.setStep(step, bitwigY, 0, stepNoteLength, stepDefaultVelocity);
+                    }
+                    else
+                    {
+                        trackIndex = data1 % gridWidth;
+                        sceneIndex = gridHeight - 1 - Math.floor(data1 / gridWidth);
+                        mainTrackBank.getTrack(trackIndex).getClipLauncherSlots().launch(sceneIndex);
+                    }
                 }
                 else if (data1 >= controlNote.up && data1 <= controlNote.device)
                 {
@@ -1014,6 +1180,10 @@ function onMidi(status, data1, data2)
 
 function exit()
 {
+    if (stepSequencerMode)
+    {
+        clearStepGrid();
+    }
     clearGrid(false);
     clearSceneLaunchers();
 }
